@@ -1,8 +1,3 @@
-"""
-pretrain.py — Self-supervised Masked Patch Modeling on CT Scans
-Run with: python pretrain.py
-"""
-
 import os
 import torch
 import torch.nn as nn
@@ -12,26 +7,17 @@ from torch.utils.data import DataLoader
 from utils import LIDCDataset, PatchEmbed
 from models.ctvit import CTViT
 
-
-# =============================================================================
 # CONFIG — change these as needed
-# =============================================================================
-
 ROOT_DIR     = "Data/"
-NUM_PRETRAIN = 10          # number of samples to use for pretraining
+NUM_PRETRAIN = 10
 BATCH_SIZE   = 2
 NUM_EPOCHS   = 5
 LEARNING_RATE= 1e-4
 MASK_RATIO   = 0.75        # fraction of patches to mask
 SAVE_PATH    = "pretrained_weights.pth"
 
-
-# =============================================================================
 # MASKING
-# =============================================================================
-
 def mask_tokens(tokens, mask_ratio=0.75):
-    """Randomly zero out mask_ratio fraction of tokens."""
     B, N, C = tokens.shape
     num_masked = int(N * mask_ratio)
 
@@ -48,21 +34,18 @@ def mask_tokens(tokens, mask_ratio=0.75):
     return masked_tokens, mask
 
 
-# =============================================================================
 # MAIN
-# =============================================================================
-
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    # --- Dataset ---
+    # Dataset
     dataset = LIDCDataset(ROOT_DIR)
     pretrain_subset = torch.utils.data.Subset(dataset, range(NUM_PRETRAIN))
     pretrain_loader = DataLoader(pretrain_subset, batch_size=BATCH_SIZE, shuffle=True)
     print(f"Pretraining on {len(pretrain_subset)} samples")
 
-    # --- Model ---
+    # Model
     patch_embed = PatchEmbed(in_channels=3, embed_dim=1024, patch_size=16).to(device)
 
     model = CTViT(
@@ -71,11 +54,11 @@ def main():
         num_heads=16,
     ).to(device)
 
-    # Reconstruction head: 1024 → 768 (16x16x3 patch pixels)
+    # Reconstruction head
     patch_pixels = 16 * 16 * 3
     reconstruction_head = nn.Linear(1024, patch_pixels).to(device)
 
-    # --- Optimizer ---
+    # Optimizer
     optimizer = optim.Adam(
         list(model.parameters()) +
         list(patch_embed.parameters()) +
@@ -83,7 +66,7 @@ def main():
         lr=LEARNING_RATE
     )
 
-    # --- Pretraining Loop ---
+    # Pretraining Loop
     model.train()
     reconstruction_head.train()
 
@@ -94,7 +77,7 @@ def main():
         for batch in pretrain_loader:
             batch = batch.to(device)
 
-            tokens = patch_embed(batch)                    # (B, 196, 1024)
+            tokens = patch_embed(batch)
             masked_tokens, mask = mask_tokens(tokens, MASK_RATIO)
 
             output = model(
@@ -103,10 +86,10 @@ def main():
                 window_block_indexes=[],
                 spatial_size=(14, 14),
                 cls_embed=False,
-            )                                              # (B, 196, 1024)
+            )
 
-            pred   = reconstruction_head(output)           # (B, 196, 768)
-            target = reconstruction_head(tokens.detach())  # (B, 196, 768)
+            pred   = reconstruction_head(output)
+            target = reconstruction_head(tokens.detach())
 
             # MSE loss on masked positions only
             loss = ((pred - target) ** 2)[mask].mean()
@@ -119,27 +102,13 @@ def main():
 
         print(f"Epoch {epoch+1}/{NUM_EPOCHS}  Loss: {total_loss/len(pretrain_loader):.4f}")
 
-    # --- Save ---
+    # Save the weights
     print(f"\nPretraining done! Saving weights to {SAVE_PATH}...")
     torch.save({
         "model":       model.state_dict(),
         "patch_embed": patch_embed.state_dict(),
     }, SAVE_PATH)
     print(f"Saved → {SAVE_PATH}")
-
-    # ============================================================
-    # ✅ PRETRAINING COMPLETE
-    # This script covers:
-    #   - Data Loading (unlabeled DICOM CT series)    ✅
-    #   - Preprocessing (normalize, slice, resize)    ✅
-    #   - Tokenization (PatchEmbed → 196 tokens)      ✅
-    #   - Masked Patch Modeling (75% mask ratio)      ✅
-    #   - MSE Reconstruction Loss                     ✅
-    #   - Saved weights → pretrained_weights.pth      ✅
-    #
-    # Next step: python finetune.py
-    # ============================================================
-
 
 if __name__ == "__main__":
     main()

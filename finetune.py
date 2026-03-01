@@ -1,8 +1,3 @@
-"""
-finetune.py — Supervised Fine-tuning on CT Diagnosis Labels
-Run with: python finetune.py
-"""
-
 import os
 import torch
 import torch.nn as nn
@@ -14,10 +9,7 @@ from utils import LIDCLabeledDataset, PatchEmbed, load_labels
 from models.ctvit import CTViT
 
 
-# =============================================================================
 # CONFIG — change these as needed
-# =============================================================================
-
 ROOT_DIR       = "/Volumes/Expansion/Data/manifest-1600709154662/LIDC-IDRI/"
 LABELS_PATH    = "tcia-diagnosis-data-2012-04-20.xls"
 PRETRAIN_CKPT  = "pretrained_weights.pth"
@@ -30,26 +22,20 @@ LR_HEAD        = 1e-4    # higher lr for new classification head
 NUM_CLASSES    = 4
 
 # Class counts from the dataset (used for weighted loss)
-CLASS_COUNTS   = [27, 36, 43, 51]   # Unknown, Benign, Malignant-Primary, Malignant-Metastatic
+CLASS_COUNTS   = [27, 36, 43, 51]
 
 
-# =============================================================================
 # MAIN
-# =============================================================================
-
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    # --- Labels ---
     df = load_labels(LABELS_PATH)
     print(f"Total labeled patients: {len(df)}")
     print(f"Class distribution:\n{df['diagnosis'].value_counts().sort_index()}\n")
 
-    # --- Dataset ---
     labeled_dataset = LIDCLabeledDataset(ROOT_DIR, df)
 
-    # Stratified split — ensures all classes appear in both train and val
     indices = list(range(len(labeled_dataset)))
     labels  = [labeled_dataset.samples[i][1] for i in indices]
 
@@ -67,7 +53,6 @@ def main():
 
     print(f"Train: {len(train_dataset)}  Val: {len(val_dataset)}\n")
 
-    # --- Model ---
     patch_embed = PatchEmbed(in_channels=3, embed_dim=1024, patch_size=16).to(device)
 
     model = CTViT(
@@ -85,14 +70,12 @@ def main():
     # Classification head
     classifier = nn.Linear(1024, NUM_CLASSES).to(device)
 
-    # --- Loss ---
     class_counts  = torch.tensor(CLASS_COUNTS, dtype=torch.float32)
     class_weights = 1.0 / class_counts
     class_weights = class_weights / class_weights.sum()
     class_weights = class_weights.to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    # --- Optimizer + Scheduler ---
     optimizer = torch.optim.Adam([
         {"params": model.parameters(),       "lr": LR_BACKBONE},
         {"params": patch_embed.parameters(), "lr": LR_BACKBONE},
@@ -101,7 +84,7 @@ def main():
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
-    # --- Fine-tuning Loop ---
+    # Fine-tuning Loop
     print("Starting fine-tuning...")
     model.train()
     classifier.train()
@@ -113,17 +96,17 @@ def main():
             images = images.to(device)
             labels = labels.to(device)
 
-            tokens = patch_embed(images)       # (B, 196, 1024)
+            tokens = patch_embed(images)
             output = model(
                 tokens,
                 window_size=(7, 7),
                 window_block_indexes=[],
                 spatial_size=(14, 14),
                 cls_embed=False,
-            )                                  # (B, 196, 1024)
+            )
 
-            pooled = output.mean(dim=1)        # (B, 1024)
-            logits = classifier(pooled)        # (B, 4)
+            pooled = output.mean(dim=1)
+            logits = classifier(pooled)
             loss   = criterion(logits, labels)
 
             optimizer.zero_grad()
@@ -135,7 +118,7 @@ def main():
         scheduler.step()
         print(f"Epoch {epoch+1}/{NUM_EPOCHS}  Loss: {total_loss/len(train_loader):.4f}")
 
-    # --- Evaluation ---
+    # Evaluation
     print("\nEvaluating...")
     model.eval()
     classifier.eval()
@@ -170,7 +153,7 @@ def main():
         zero_division=0
     ))
 
-    # --- Save ---
+    # Save the model
     print(f"Saving model to {SAVE_PATH}...")
     torch.save({
         "model":       model.state_dict(),
@@ -178,22 +161,6 @@ def main():
         "classifier":  classifier.state_dict(),
     }, SAVE_PATH)
     print(f"Saved → {SAVE_PATH}")
-
-    # ============================================================
-    # ✅ FINE-TUNING COMPLETE
-    # This script covers:
-    #   - Label loading from TCIA Excel file          ✅
-    #   - Stratified train/val split (80/20)          ✅
-    #   - Pretrained weights loaded                   ✅
-    #   - Classification head (1024 → 4 classes)      ✅
-    #   - Weighted CrossEntropy Loss                  ✅
-    #   - Cosine LR Scheduler                         ✅
-    #   - Macro F1 Evaluation                         ✅
-    #   - Saved weights → finetuned_weights.pth       ✅
-    #
-    # Next step: huggingface.ipynb (PEFT methods)
-    # ============================================================
-
 
 if __name__ == "__main__":
     main()

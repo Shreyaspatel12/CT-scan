@@ -1,8 +1,3 @@
-"""
-utils.py — Shared data loading and preprocessing for CT scan pipeline.
-Imported by pretrain.ipynb, finetune.ipynb, and huggingface.ipynb
-"""
-
 import os
 import cv2
 import numpy as np
@@ -11,15 +6,8 @@ import torch
 from torch.utils.data import Dataset
 
 
-# =============================================================================
 # DATA LOADING
-# =============================================================================
-
 def get_series_paths(root_dir):
-    """
-    Walk nested LIDC-IDRI folder structure and return all folders
-    that contain .dcm files (one folder = one CT series).
-    """
     series_paths = []
     for root, dirs, files in os.walk(root_dir):
         if any(f.lower().endswith(".dcm") for f in files):
@@ -28,11 +16,6 @@ def get_series_paths(root_dir):
 
 
 def load_ct_series(series_path):
-    """
-    Read all .dcm files in a folder, sort by InstanceNumber,
-    convert to Hounsfield Units, and stack into a 3D volume.
-    Returns: np.ndarray of shape (num_slices, H, W)
-    """
     slices = []
     for file in os.listdir(series_path):
         if file.lower().endswith(".dcm"):
@@ -64,20 +47,12 @@ def load_ct_series(series_path):
     return volume
 
 
-# =============================================================================
 # PREPROCESSING
-# =============================================================================
-
 def normalize_volume(volume):
-    """Normalize CT volume values to [0, 1]."""
     return (volume - volume.min()) / (volume.max() - volume.min() + 1e-8)
 
 
 def get_three_slices(volume):
-    """
-    Pick 3 consecutive slices centred at the middle of the volume.
-    Returns: np.ndarray of shape (3, H, W)
-    """
     mid = volume.shape[0] // 2
     if volume.shape[0] < 3:
         return np.stack([volume[0]] * 3, axis=0)
@@ -85,16 +60,10 @@ def get_three_slices(volume):
 
 
 def resize_slices(slices, size=224):
-    """
-    Resize each of the 3 slices to (size x size).
-    Input:  (3, H, W)
-    Output: (3, size, size)
-    """
     return np.stack([cv2.resize(slices[i], (size, size)) for i in range(3)], axis=0)
 
 
 def preprocess(series_path):
-    """Full preprocessing pipeline for one CT series."""
     volume = load_ct_series(series_path)
     volume = normalize_volume(volume)
     slices = get_three_slices(volume)
@@ -102,15 +71,8 @@ def preprocess(series_path):
     return torch.tensor(slices, dtype=torch.float32)  # (3, 224, 224)
 
 
-# =============================================================================
 # DATASETS
-# =============================================================================
-
 class LIDCDataset(Dataset):
-    """
-    Unlabeled dataset — used for pretraining.
-    Each item: float32 tensor of shape (3, 224, 224)
-    """
     def __init__(self, root_dir):
         self.series_paths = get_series_paths(root_dir)
         print(f"Unlabeled dataset: {len(self.series_paths)} CT series")
@@ -123,11 +85,6 @@ class LIDCDataset(Dataset):
 
 
 class LIDCLabeledDataset(Dataset):
-    """
-    Labeled dataset — used for fine-tuning.
-    Each item: (float32 tensor (3, 224, 224), int label)
-    Labels: 0=Unknown, 1=Benign, 2=Malignant-Primary, 3=Malignant-Metastatic
-    """
     def __init__(self, root_dir, df):
         self.samples = []
 
@@ -156,10 +113,7 @@ class LIDCLabeledDataset(Dataset):
         return image, torch.tensor(label, dtype=torch.long)
 
 
-# =============================================================================
 # PATCH EMBEDDING (Tokenization)
-# =============================================================================
-
 import torch.nn as nn
 
 class PatchEmbed(nn.Module):
@@ -182,17 +136,10 @@ class PatchEmbed(nn.Module):
         return x
 
 
-# =============================================================================
 # LABEL LOADING
-# =============================================================================
-
 import pandas as pd
 
 def load_labels(xls_path):
-    """
-    Load diagnosis labels from the TCIA Excel file.
-    Returns a DataFrame with columns: patient_id, diagnosis
-    """
     df = pd.read_excel(xls_path)
     df.columns = [col.strip().replace("\n", " ") for col in df.columns]
     df = df.iloc[:, [0, 1]].copy()
