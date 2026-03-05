@@ -221,8 +221,6 @@ All 3 methods are run automatically in sequence and a final comparison table is 
 | **DeepSpeed** | ❌ Not used | Overkill for current dataset size, complex config, best for 10B+ parameter models |
 | **PyTorch FSDP** | ❌ Not used | Requires multiple GPUs, unnecessary for single machine |
 | **NVIDIA Apex** | ❌ Not used | Replaced by native PyTorch AMP, no longer recommended |
-| **Fairscale** | ❌ Not used | Superseded by PyTorch FSDP |
-| **Flash Attention** | ❌ Not used | Requires specific GPU (A100/H100), complex install |
 
 ### PEFT methods evaluated
 
@@ -232,8 +230,6 @@ All 3 methods are run automatically in sequence and a final comparison table is 
 | **AdaLoRA** | ✅ Used | Works perfectly, adaptive rank allocation |
 | **IA3** | ✅ Used | Works perfectly, very lightweight |
 | **Prefix Tuning** | ❌ Removed | Built for language models only — requires `vocab_size`, `get_text_config()`, internal text token embeddings that don't exist in vision models |
-| **Prompt Tuning** | ❌ Removed | Same issue as Prefix Tuning — text-model specific internals |
-| **BitFit** | ⚠️ Tested | Works but not a HuggingFace PEFT library method — manual PyTorch parameter freezing only |
 
 ### Pretraining masking approaches evaluated
 
@@ -242,38 +238,6 @@ All 3 methods are run automatically in sequence and a final comparison table is 
 | **Mask in training loop** | Stage 1 & 2 | Simple, works, but requires manual loop — can't use Trainer |
 | **Mask in Dataset/DataCollator** | ❌ Not used | Fixed mask per epoch — model sees same masked patches every epoch, worse learning |
 | **Mask inside model.forward()** | ✅ Stage 3 | Fresh random mask every call, fully compatible with Trainer, cleanest approach |
-
----
-
-## Known Limitations and Future Improvements
-
-**Current limitations:**
-- Pretraining uses only 10 samples (should use all 1018 for production)
-- Only 3 middle slices used — discards most of the 3D volume
-- Simple min-max normalization instead of proper CT windowing
-- Mean pooling used instead of CLS token
-
-**Improvements ranked by impact:**
-1. Pretrain on all 1018 patients — biggest improvement to model quality
-2. Use all slices with uniform sampling instead of 3 middle slices
-3. Proper CT windowing (lung window: center=-600, width=1500)
-4. Add CLS token for classification instead of mean pooling
-5. Increase fine-tuning epochs to 20-30
-6. Tune LoRA rank (try r=32) for more capacity
-
----
-
-## Why F1 Scores are Low
-
-Current results are **pipeline verification results**, not production results.
-
-| Root cause | Impact |
-|-----------|--------|
-| Pretrained on only 10 samples | CTViT has 305M parameters — 10 samples is nowhere near enough |
-| Only 157 labeled patients | Too small for a 305M parameter model |
-| PEFT trains 0.07-0.77% of params | Not enough capacity to compensate for weak pretraining |
-
-With full 1018 patient pretraining and all 157 labeled patients, expected F1 scores would be significantly higher (0.50-0.65 range).
 
 ---
 
